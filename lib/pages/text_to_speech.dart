@@ -507,28 +507,28 @@ class _FileDetailsPageState extends State<FileDetailsPage> {
   PdfViewerController _pdfViewerController = PdfViewerController();
   final FlutterTts _flutterTts = FlutterTts();
   String _selectedText = '';
-  String _selectedLanguage = 'en-US'; // Default to English
+  String _selectedLanguage = 'en-US';
+  List<String> _sentences = [];
+  int _currentSentenceIndex = 0;
+  String _currentSentence = '';
 
   @override
   void initState() {
     super.initState();
     _flutterTts.setSpeechRate(_playbackSpeed);
-    _flutterTts.setLanguage(_selectedLanguage); // Set initial language
+    _flutterTts.setLanguage(_selectedLanguage);
     _flutterTts.setCompletionHandler(() {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          setState(() {
+      if (mounted) {
+        setState(() {
+          if (_currentSentenceIndex < _sentences.length - 1) {
+            _currentSentenceIndex++;
+            _speakCurrentSentence();
+          } else {
             _isPlaying = false;
-          });
-        }
-      });
-    });
-  }
-
-  void _onLanguageChanged(String? language) {
-    setState(() {
-      _selectedLanguage = language ?? 'en-US';
-      _flutterTts.setLanguage(_selectedLanguage);
+            _currentSentence = '';
+          }
+        });
+      }
     });
   }
 
@@ -538,39 +538,50 @@ class _FileDetailsPageState extends State<FileDetailsPage> {
     super.dispose();
   }
 
+  void _onLanguageChanged(String? language) {
+    setState(() {
+      _selectedLanguage = language ?? 'en-US';
+      _flutterTts.setLanguage(_selectedLanguage);
+    });
+  }
+
+  void _speakCurrentSentence() {
+    if (_currentSentenceIndex < _sentences.length) {
+      String sentence = _sentences[_currentSentenceIndex];
+      _flutterTts.speak(sentence);
+      setState(() {
+        _currentSentence = sentence;
+      });
+    }
+  }
+
   Future<void> _speak() async {
     if (_selectedText.isEmpty) {
       await _flutterTts.speak('Text is empty!');
     } else {
-      // Replace new lines with spaces for continuous reading
-      String continuousText = _selectedText.replaceAll('\n', ' ');
-
-      await _flutterTts.speak(continuousText);
-      if (mounted) {
-        setState(() {
-          _isPlaying = true;
-        });
-      }
+      _sentences = _selectedText.split(RegExp(r'(?<=[.!?])\s+'));
+      _currentSentenceIndex = 0;
+      _speakCurrentSentence();
+      setState(() {
+        _isPlaying = true;
+      });
     }
   }
 
-
   Future<void> _pause() async {
     await _flutterTts.pause();
-    if (mounted) {
-      setState(() {
-        _isPlaying = false;
-      });
-    }
+    setState(() {
+      _isPlaying = false;
+    });
   }
 
   Future<void> _stop() async {
     await _flutterTts.stop();
-    if (mounted) {
-      setState(() {
-        _isPlaying = false;
-      });
-    }
+    setState(() {
+      _isPlaying = false;
+      _currentSentenceIndex = 0;
+      _currentSentence = '';
+    });
   }
 
   @override
@@ -602,31 +613,52 @@ class _FileDetailsPageState extends State<FileDetailsPage> {
         child: Column(
           children: [
             Expanded(
-              child: SfPdfViewer.network(
-                widget.fileURL,
-                controller: _pdfViewerController,
-                enableTextSelection: true,
-                onTextSelectionChanged: (PdfTextSelectionChangedDetails details) {
-                  // Schedule a state update after the current frame
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) {
-                      setState(() {
-                        _selectedText = details.selectedText ?? '';
-                        print(_selectedText);
+              child: Stack(
+                children: [
+                  SfPdfViewer.network(
+                    widget.fileURL,
+                    controller: _pdfViewerController,
+                    enableTextSelection: true,
+                    onTextSelectionChanged: (PdfTextSelectionChangedDetails details) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) {
+                          setState(() {
+                            _selectedText = details.selectedText ?? '';
+                            print(_selectedText);
+                          });
+                        }
                       });
-                    }
-                  });
-                },
+                    },
+                  ),
+                  if (_currentSentence.isNotEmpty)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: EdgeInsets.all(8),
+                        color: Colors.black.withOpacity(0.7),
+                        child: Text(
+                          _currentSentence,
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontSize: 16,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
             const SizedBox(height: 20),
             ControlButtonsSection(
               onPlayPause: () {
                 if (_isPlaying) {
-                  _flutterTts.stop();
+                  _pause();
                 } else {
                   if (_selectedText.isNotEmpty) {
-                    _flutterTts.speak(_selectedText);
+                    _speak();
                   } else {
                     _flutterTts.speak("There is no text selected to read.");
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -638,19 +670,12 @@ class _FileDetailsPageState extends State<FileDetailsPage> {
                     );
                   }
                 }
-                if (mounted) {
-                  setState(() {
-                    _isPlaying = !_isPlaying;
-                  });
-                }
               },
               onSpeedChanged: (speed) {
-                if (mounted) {
-                  setState(() {
-                    _playbackSpeed = speed ?? 0.5;
-                    _flutterTts.setSpeechRate(_playbackSpeed);
-                  });
-                }
+                setState(() {
+                  _playbackSpeed = speed ?? 0.5;
+                  _flutterTts.setSpeechRate(_playbackSpeed);
+                });
               },
               currentSpeed: _playbackSpeed,
               isPlaying: _isPlaying,
@@ -664,9 +689,8 @@ class _FileDetailsPageState extends State<FileDetailsPage> {
   }
 }
 
-
 class ControlButtonsSection extends StatelessWidget {
-  final void Function() onPlayPause;
+  final VoidCallback onPlayPause;
   final ValueChanged<double?> onSpeedChanged;
   final double currentSpeed;
   final bool isPlaying;
@@ -729,7 +753,6 @@ class PlaybackSpeedControl extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        // Playback speed control on the left
         Row(
           children: [
             Text(
@@ -762,8 +785,6 @@ class PlaybackSpeedControl extends StatelessWidget {
             ),
           ],
         ),
-
-        // Language dropdown on the right
         DropdownButton<String?>(
           value: selectedLanguage,
           items: [

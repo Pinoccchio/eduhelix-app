@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_app/plant_screen.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -239,6 +240,9 @@ class _HomeState extends State<Home> {
         // GestureDetector for Study Planner navigation
         GestureDetector(
           onTap: () {
+
+
+
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -247,6 +251,22 @@ class _HomeState extends State<Home> {
                 ),
               ),
             );
+
+
+
+            /*
+
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PlantScreen(),
+              ),
+            );
+
+             */
+
+
+
           },
           child: MenuItem(
             iconPath: 'assets/animated_icon/study-planner-animated.json',

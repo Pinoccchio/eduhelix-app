@@ -1,39 +1,86 @@
 import 'dart:async';
-import 'package:flutter_app/Study_Planner/update_data.dart';
-import 'package:lottie/lottie.dart';
+
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_app/Study_Planner/update_data.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
+import 'package:lottie/lottie.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // Import Firestore package
 import 'package:fluttertoast/fluttertoast.dart';
-import 'package:intl/intl.dart'; // Import intl package for date formatting
+import 'package:home_widget/home_widget.dart';
+import 'package:rive/rive.dart';
 
 class StudyPlanner extends StatefulWidget {
   final String studentNumber;
 
-  StudyPlanner({required this.studentNumber});
+  const StudyPlanner({Key? key, required this.studentNumber}) : super(key: key);
 
   @override
   _StudyPlannerState createState() => _StudyPlannerState();
 }
 
-class _StudyPlannerState extends State<StudyPlanner>
-    with SingleTickerProviderStateMixin {
+class _StudyPlannerState extends State<StudyPlanner> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  Map<String, Artboard?> _riveArtboards = {};
+  Map<String, SMIInput<double>?> _progressInputs = {};
   Timer? _taskCheckTimer;
+  Timer? _uiUpdateTimer;
+  bool _disposed = false;
 
   @override
   void initState() {
     super.initState();
-    _startRealTimeTaskChecker();
     _tabController = TabController(length: 3, vsync: this);
+    _startRealTimeTaskChecker();
+    _startUiUpdateTimer();
+    _updateWidgetStudentNumber();
+  }
+
+  void _loadRiveAnimation(String taskId) async {
+    if (_riveArtboards.containsKey(taskId)) return;
+
+    final data = await rootBundle.load('assets/animated_icon/tree_demo.riv');
+    final file = RiveFile.import(data);
+    final artboard = file.mainArtboard;
+    var controller = StateMachineController.fromArtboard(artboard, 'Grow');
+    if (controller != null) {
+      artboard.addController(controller);
+      _progressInputs[taskId] = controller.findInput<double>('input') as SMINumber;
+    }
+    setState(() => _riveArtboards[taskId] = artboard);
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _tabController.dispose();
-    _taskCheckTimer?.cancel(); // Stop the timer when the widget is disposed
+    _taskCheckTimer?.cancel();
+    _uiUpdateTimer?.cancel();
     super.dispose();
+  }
+
+  void _startUiUpdateTimer() {
+    _uiUpdateTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (!_disposed) {
+        setState(() {});
+      }
+    });
+  }
+
+  Future<void> _updateWidgetStudentNumber() async {
+    if (_disposed) return;
+    try {
+      await HomeWidget.saveWidgetData<String>('studentNumber', widget.studentNumber);
+      await HomeWidget.updateWidget(
+        name: 'StudyPlannerWidgetProvider',
+        iOSName: 'StudyPlannerWidgetProvider',
+      );
+      print('Student number saved for widget: ${widget.studentNumber}');
+    } catch (e) {
+      print('Error updating widget: $e');
+    }
   }
 
   @override
@@ -62,7 +109,7 @@ class _StudyPlannerState extends State<StudyPlanner>
           labelColor: Colors.white,
           unselectedLabelColor: Colors.grey[400],
           indicator: BoxDecoration(
-            color: Color(0xFF2FD1C5),
+            color: const Color(0xFF2FD1C5),
             borderRadius: BorderRadius.circular(8),
           ),
           tabs: [
@@ -81,9 +128,9 @@ class _StudyPlannerState extends State<StudyPlanner>
               child: TabBarView(
                 controller: _tabController,
                 children: [
-                  _buildTaskList(context, 'To Do'),
-                  _buildTaskList(context, 'Missed'),
-                  _buildTaskList(context, 'Completed'),
+                  _buildTaskList('To Do'),
+                  _buildTaskList('Missed'),
+                  _buildTaskList('Completed'),
                 ],
               ),
             ),
@@ -93,23 +140,21 @@ class _StudyPlannerState extends State<StudyPlanner>
     );
   }
 
-  // Button to add a new task
   Widget _buildNewTaskButton() {
     return Container(
-      margin: EdgeInsets.only(top: 10, right: 24),
+      margin: const EdgeInsets.only(top: 10, right: 24),
       alignment: Alignment.centerRight,
       child: TextButton.icon(
         onPressed: () {
-          // Show dialog when the button is clicked
           _showNewTaskDialog(context);
         },
-        icon: Icon(Icons.add, color: Color(0xFF57E597)),
+        icon: const Icon(Icons.add, color: Color(0xFF57E597)),
         label: Text(
           'New Task',
           style: GoogleFonts.lato(
               fontWeight: FontWeight.w700,
               fontSize: 16,
-              color: Color(0xFF57E597)),
+              color: const Color(0xFF57E597)),
         ),
       ),
     );
@@ -117,8 +162,8 @@ class _StudyPlannerState extends State<StudyPlanner>
 
   void _showNewTaskDialog(BuildContext context) {
     final subjectController = TextEditingController();
-    final startDateTimeController = TextEditingController(); // For both date and time
-    final endDateTimeController = TextEditingController();   // For both date and time
+    final startDateTimeController = TextEditingController();
+    final endDateTimeController = TextEditingController();
     final detailsController = TextEditingController();
 
     showDialog(
@@ -130,10 +175,10 @@ class _StudyPlannerState extends State<StudyPlanner>
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
-          backgroundColor: Color(0xFF000000),
+          backgroundColor: const Color(0xFF000000),
           child: Container(
-            width: screenSize.width * 0.9, // 90% of screen width
-            height: screenSize.height * 0.7, // 70% of screen height
+            width: screenSize.width * 0.9,
+            height: screenSize.height * 0.7,
             padding: const EdgeInsets.all(20.0),
             child: SingleChildScrollView(
               child: Column(
@@ -142,12 +187,12 @@ class _StudyPlannerState extends State<StudyPlanner>
                   Row(
                     children: [
                       IconButton(
-                        icon: Icon(Icons.arrow_back, color: Colors.white),
+                        icon: const Icon(Icons.arrow_back, color: Colors.white),
                         onPressed: () {
-                          Navigator.of(context).pop(); // Close the dialog
+                          Navigator.of(context).pop();
                         },
                       ),
-                      SizedBox(width: 8),
+                      const SizedBox(width: 8),
                       Text(
                         'Create a Task',
                         style: GoogleFonts.poppins(
@@ -158,54 +203,52 @@ class _StudyPlannerState extends State<StudyPlanner>
                       ),
                     ],
                   ),
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   _buildDialogTextField('Subject', controller: subjectController),
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   _buildDateTimePicker('Start Date & Time', controller: startDateTimeController, context: context),
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   _buildDateTimePicker('End Date & Time', controller: endDateTimeController, context: context),
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   _buildDialogTextField('Details', controller: detailsController),
-                  SizedBox(height: 30),
+                  const SizedBox(height: 30),
                   Center(
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Color(0xFF2FD1C5),
+                        backgroundColor: const Color(0xFF2FD1C5),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
                       onPressed: () async {
-                        // Validate if all fields are filled
                         if (subjectController.text.isEmpty ||
                             startDateTimeController.text.isEmpty ||
                             endDateTimeController.text.isEmpty ||
                             detailsController.text.isEmpty) {
-                          // Show error message if any field is empty
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
+                            const SnackBar(
                               content: Text('Please fill in all fields.'),
                               backgroundColor: Colors.red,
                             ),
                           );
-                          return; // Exit the function early
+                          return;
                         }
 
-                        // Save task to Firestore as DateTime
                         await FirebaseFirestore.instance
                             .collection('users')
                             .doc(widget.studentNumber)
                             .collection('to-do-files')
                             .add({
                           'subject': subjectController.text,
-                          'startTime': DateTime.parse(startDateTimeController.text), // Store as DateTime
-                          'endTime': DateTime.parse(endDateTimeController.text),   // Store as DateTime
+                          'startTime': DateTime.parse(startDateTimeController.text),
+                          'endTime': DateTime.parse(endDateTimeController.text),
                           'details': detailsController.text,
-                          'status': 'To Do', // Initial status
+                          'status': 'To Do',
                           'createdAt': FieldValue.serverTimestamp(),
                         });
 
-                        Navigator.of(context).pop(); // Close the dialog
+                        Navigator.of(context).pop();
+                        _updateWidgetStudentNumber();
                       },
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 15.0),
@@ -229,27 +272,25 @@ class _StudyPlannerState extends State<StudyPlanner>
     );
   }
 
-// Helper function to build input fields in the dialog
   Widget _buildDialogTextField(String labelText, {required TextEditingController controller}) {
     return TextField(
       controller: controller,
       style: GoogleFonts.lato(color: Colors.white),
       decoration: InputDecoration(
         labelText: labelText,
-        labelStyle: GoogleFonts.lato(color: Color(0xFF585A66)),
+        labelStyle: GoogleFonts.lato(color: const Color(0xFF585A66)),
         enabledBorder: OutlineInputBorder(
-          borderSide: BorderSide(color: Color(0xFFE4EDFF)),
+          borderSide: const BorderSide(color: Color(0xFFE4EDFF)),
           borderRadius: BorderRadius.circular(8),
         ),
         focusedBorder: OutlineInputBorder(
-          borderSide: BorderSide(color: Color(0xFF57E597)),
+          borderSide: const BorderSide(color: Color(0xFF57E597)),
           borderRadius: BorderRadius.circular(8),
         ),
       ),
     );
   }
 
-// Helper function to build DateTime picker
   Widget _buildDateTimePicker(String labelText, {required TextEditingController controller, required BuildContext context}) {
     return TextField(
       controller: controller,
@@ -257,16 +298,16 @@ class _StudyPlannerState extends State<StudyPlanner>
       style: GoogleFonts.lato(color: Colors.white),
       decoration: InputDecoration(
         labelText: labelText,
-        labelStyle: GoogleFonts.lato(color: Color(0xFF585A66)),
+        labelStyle: GoogleFonts.lato(color: const Color(0xFF585A66)),
         enabledBorder: OutlineInputBorder(
-          borderSide: BorderSide(color: Color(0xFFE4EDFF)),
+          borderSide: const BorderSide(color: Color(0xFFE4EDFF)),
           borderRadius: BorderRadius.circular(8),
         ),
         focusedBorder: OutlineInputBorder(
-          borderSide: BorderSide(color: Color(0xFF57E597)),
+          borderSide: const BorderSide(color: Color(0xFF57E597)),
           borderRadius: BorderRadius.circular(8),
         ),
-        suffixIcon: Icon(Icons.calendar_today, color: Colors.white),
+        suffixIcon: const Icon(Icons.calendar_today, color: Colors.white),
       ),
       onTap: () async {
         DateTime? pickedDate = await showDatePicker(
@@ -283,14 +324,19 @@ class _StudyPlannerState extends State<StudyPlanner>
           );
 
           if (pickedTime != null) {
-            final DateTime finalDateTime = DateTime(pickedDate.year, pickedDate.month, pickedDate.day, pickedTime.hour, pickedTime.minute);
-            controller.text = finalDateTime.toIso8601String(); // Store full DateTime in ISO 8601 format
+            final DateTime finalDateTime = DateTime(
+              pickedDate.year,
+              pickedDate.month,
+              pickedDate.day,
+              pickedTime.hour,
+              pickedTime.minute,
+            );
+            controller.text = finalDateTime.toIso8601String();
           }
         }
       },
     );
   }
-
 
   Widget _buildTab(String text) {
     return Tab(
@@ -307,17 +353,17 @@ class _StudyPlannerState extends State<StudyPlanner>
     );
   }
 
-  Widget _buildTaskList(BuildContext context, String taskType) {
+  Widget _buildTaskList(String taskType) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('users')
           .doc(widget.studentNumber)
           .collection('to-do-files')
-          .where('status', isEqualTo: taskType) // Filter by status
+          .where('status', isEqualTo: taskType)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(child: CircularProgressIndicator());
+          return const Center(child: CircularProgressIndicator());
         }
 
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
@@ -326,68 +372,162 @@ class _StudyPlannerState extends State<StudyPlanner>
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Lottie.asset('assets/animated_icon/empty-animation.json', width: 200, height: 200),
-                SizedBox(height: 20),
-                Text('No tasks available.'),
+                const SizedBox(height: 20),
+                const Text('No tasks available.', style: TextStyle(color: Colors.white)),
               ],
             ),
           );
         }
 
-        DateTime currentTime = DateTime.now();
-        final DateFormat dateFormat = DateFormat('MMM d, yyyy'); // Format date
-        final DateFormat timeFormat = DateFormat('h:mm a'); // Format time (e.g., 4:57 AM)
+        return ListView(
+          children: snapshot.data!.docs.map((doc) {
+            var data = doc.data() as Map<String, dynamic>;
+            DateTime endTime = (data['endTime'] as Timestamp).toDate();
+            DateTime startTime = (data['startTime'] as Timestamp).toDate();
 
-        return SingleChildScrollView(
-          child: Column(
-            children: snapshot.data!.docs.map((doc) {
-              var data = doc.data() as Map<String, dynamic>;
+            return StreamBuilder<DateTime>(
+              stream: Stream.periodic(const Duration(seconds: 1), (_) => DateTime.now()),
+              builder: (context, currentTimeSnapshot) {
+                DateTime currentTime = currentTimeSnapshot.data ?? DateTime.now();
+                double progress = _calculateProgress(startTime, endTime);
 
-              // Initialize endTime with a default value (e.g., current time) to prevent the error
-              DateTime endTime = DateTime.now();
-              String endTimeString;
+                if (taskType == 'To Do') {
+                  _loadRiveAnimation(doc.id);
+                  if (_progressInputs[doc.id] != null) {
+                    _progressInputs[doc.id]!.value = progress * 100;
+                  }
+                }
 
-              // Parse endTime from Firestore (Timestamp or String)
-              if (data['endTime'] is Timestamp) {
-                endTime = (data['endTime'] as Timestamp).toDate();
-                endTimeString = '${dateFormat.format(endTime)} ${timeFormat.format(endTime)}'; // Include both date and time
-              } else {
-                // Handle string format and parse to DateTime if necessary
-                endTimeString = data['endTime']; // Assuming this is already a combined date and time string
-              }
+                String dueDateString = DateFormat.yMMMd().add_jm().format(endTime);
+                String timeLeftString = _getTimeLeftString(taskType, startTime, endTime, currentTime, data);
 
-              // Parse startTime from Firestore (Timestamp or String)
-              String startTimeString;
-              if (data['startTime'] is Timestamp) {
-                startTimeString = '${dateFormat.format((data['startTime'] as Timestamp).toDate())} ${timeFormat.format((data['startTime'] as Timestamp).toDate())}';
-              } else {
-                startTimeString = data['startTime']; // Assuming this is a combined date and time string
-              }
-
-              // Mark task as missed if past end time
-              if (taskType != 'Completed' && endTime.isBefore(currentTime)) {
-                _markTaskAsMissed(doc.id);
-              }
-
-              return _buildSection(
-                context,
-                sectionColor: _getColorForTaskType(taskType),
-                time: '$startTimeString - $endTimeString', // Show both startTime and endTime with date and time
-                title: data['subject'],
-                description: data['details'],
-                svgAsset: 'assets/vectors/vector_2_x2.svg', // Update as needed
-                onActionTap: () => _showActionMenu(context, doc.id),
-                onCheckTap: () => _markTaskAsCompleted(doc.id),
-                showCheckIcon: taskType != 'Completed', // Hide check icon for completed tasks
-              );
-            }).toList(),
-          ),
+                return Card(
+                  color: Colors.grey[850],
+                  margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                  child: ListTile(
+                    title: Text(data['subject'], style: const TextStyle(color: Colors.white)),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Due: $dueDateString', style: const TextStyle(color: Colors.white70)),
+                        Text(timeLeftString, style: const TextStyle(color: Colors.white70)),
+                        const SizedBox(height: 10),
+                        if (taskType == 'To Do' && _riveArtboards[doc.id] != null)
+                          SizedBox(
+                            height: 150,
+                            child: Rive(
+                              artboard: _riveArtboards[doc.id]!,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        const SizedBox(height: 10),
+                        LinearProgressIndicator(
+                          value: progress,
+                          backgroundColor: Colors.grey,
+                          color: _getProgressColor(progress, taskType),
+                        ),
+                      ],
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (taskType != 'Completed')
+                          IconButton(
+                            icon: const Icon(Icons.check, color: Colors.green),
+                            onPressed: () => _markTaskAsCompleted(doc.id),
+                          ),
+                        IconButton(
+                          icon: const Icon(Icons.edit, color: Colors.blue),
+                          onPressed: () => _editTask(context, doc.id),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          onPressed: () => _deleteTask(context, doc.id),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          }).toList(),
         );
       },
     );
   }
 
+  String _getTimeLeftString(String taskType, DateTime startTime, DateTime endTime, DateTime currentTime, Map<String, dynamic> data) {
+    if (taskType == 'Completed') {
+      DateTime completionTime = (data['completionTime'] as Timestamp?)?.toDate() ?? DateTime.now();
+      Duration timeDifference = completionTime.difference(endTime);
+      return timeDifference.isNegative
+          ? 'Completed ${_formatDuration(timeDifference.abs())} early'
+          : 'Completed ${_formatDuration(timeDifference)} late';
+    } else if (taskType == 'To Do') {
+      Duration timeLeft = endTime.difference(currentTime);
+      return 'Time left: ${_formatDetailedDuration(timeLeft)}';
+    } else {
+      Duration timeOverdue = currentTime.difference(endTime);
+      return 'Overdue by: ${_formatDetailedDuration(timeOverdue)}';
+    }
+  }
+
+  String _formatDetailedDuration(Duration duration) {
+    if (duration.isNegative) {
+      return 'Task is overdue';
+    }
+
+    List<String> parts = [];
+
+    if (duration.inDays > 0) {
+      parts.add('${duration.inDays} day${duration.inDays > 1 ? 's' : ''}');
+    }
+
+    int hours = duration.inHours % 24;
+    if (hours > 0) {
+      parts.add('$hours hour${hours > 1 ? 's' : ''}');
+    }
+
+    int minutes = duration.inMinutes % 60;
+    if (minutes > 0) {
+      parts.add('$minutes minute${minutes > 1 ? 's' : ''}');
+    }
+
+    int seconds = duration.inSeconds % 60;
+    parts.add('$seconds second${seconds > 1 ? 's' : ''}');
+
+    return parts.join(', ');
+  }
+
+  Color _getProgressColor(double progress, String taskType) {
+    if (taskType == 'Completed') {
+      return const Color(0xFF57E597); // Green color for completed tasks
+    }
+    if (progress < 0.5) {
+      return Colors.green;
+    } else if (progress < 0.75) {
+      return Colors.orange;
+    } else {
+      return Colors.red;
+    }
+  }
+
+  String _formatDuration(Duration duration) {
+    if (duration.isNegative) {
+      return 'Overdue';
+    }
+    if (duration.inDays > 0) {
+      return '${duration.inDays} day${duration.inDays > 1 ? 's' : ''}';
+    }
+    if (duration.inHours > 0) {
+      return '${duration.inHours} hour${duration.inHours > 1 ? 's' : ''}';
+    }
+    return '${duration.inMinutes} minute${duration.inMinutes > 1 ? 's' : ''}';
+  }
+
   void _startRealTimeTaskChecker() {
-    _taskCheckTimer = Timer.periodic(Duration(minutes: 1), (timer) async {
+    _taskCheckTimer = Timer.periodic(const Duration(minutes: 1), (timer) async {
+      if (_disposed) return;
       QuerySnapshot tasks = await FirebaseFirestore.instance
           .collection('users')
           .doc(widget.studentNumber)
@@ -396,19 +536,19 @@ class _StudyPlannerState extends State<StudyPlanner>
           .get();
 
       DateTime currentTime = DateTime.now();
-      tasks.docs.forEach((doc) {
+      for (var doc in tasks.docs) {
         var data = doc.data() as Map<String, dynamic>;
         DateTime endTime = (data['endTime'] as Timestamp).toDate();
 
         if (endTime.isBefore(currentTime)) {
-          _markTaskAsMissed(doc.id);  // Automatically mark task as "Missed"
-
+          _markTaskAsMissed(doc.id);
         }
-      });
+      }
     });
   }
 
   void _markTaskAsMissed(String docId) async {
+    if (_disposed) return;
     try {
       await FirebaseFirestore.instance
           .collection('users')
@@ -416,381 +556,92 @@ class _StudyPlannerState extends State<StudyPlanner>
           .collection('to-do-files')
           .doc(docId)
           .update({'status': 'Missed'});
+      _updateWidgetStudentNumber();
     } catch (e) {
-      // Handle error, if any
       print('Error updating task: $e');
     }
   }
 
+  double _calculateProgress(DateTime startTime, DateTime endTime) {
+    final totalDuration = endTime.difference(startTime).inSeconds;
+    final remainingDuration = endTime.difference(DateTime.now()).inSeconds;
+    return remainingDuration > 0
+        ? 1 - (remainingDuration / totalDuration)
+        : 1.0; // Task is due or overdue
+  }
+
   void _markTaskAsCompleted(String docId) async {
+    if (_disposed) return;
+    try {
+      DateTime completionTime = DateTime.now();
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.studentNumber)
+          .collection('to-do-files')
+          .doc(docId)
+          .update({
+        'status': 'Completed',
+        'completionTime': completionTime,
+      });
+
+      if (!_disposed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Task marked as completed!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+      _updateWidgetStudentNumber();
+    } catch (e) {
+      print('Error updating task: $e');
+    }
+  }
+
+  void _editTask(BuildContext context, String docId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => UpdateDataScreen(
+          studentNumber: widget.studentNumber,
+          docId: docId,
+        ),
+      ),
+    );
+  }
+
+  void _deleteTask(BuildContext context, String docId) async {
+    if (_disposed) return;
     try {
       await FirebaseFirestore.instance
           .collection('users')
           .doc(widget.studentNumber)
           .collection('to-do-files')
           .doc(docId)
-          .update({'status': 'Completed'});
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Task marked as completed!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      // Handle error, if any
-      print('Error updating task: $e');
-    }
-  }
-
-  Widget _buildSection(
-      BuildContext context, {
-        required Color sectionColor,
-        required String time,
-        required String title,
-        required String description,
-        required String svgAsset,
-        required VoidCallback onActionTap,
-        VoidCallback? onCheckTap, // Make it nullable
-        bool showCheckIcon = true, // Add a flag to control icon visibility
-      }) {
-    return Container(
-      margin: EdgeInsets.fromLTRB(22, 0, 24, 26),
-      decoration: BoxDecoration(
-        border: Border.all(color: sectionColor),
-        borderRadius: BorderRadius.circular(12),
-        color: Color(0xFFFFFFFF),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x0D1C252C),
-            offset: Offset(0, 4),
-            blurRadius: 4,
-          ),
-        ],
-      ),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned(
-            left: -20,
-            top: 0,
-            bottom: 0,
-            child: Container(
-              width: 8,
-              decoration: BoxDecoration(
-                color: sectionColor,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(12),
-                  bottomLeft: Radius.circular(12),
-                ),
-              ),
-            ),
-          ),
-          Container(
-            padding: EdgeInsets.fromLTRB(24, 11, 24, 11), // Adjusted padding
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween, // Aligns content and pushes icons to the right
-              children: [
-                Expanded(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SvgPicture.asset(
-                        svgAsset,
-                        width: 16,
-                        height: 16,
-                      ),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              time,
-                              style: GoogleFonts.lato(
-                                fontWeight: FontWeight.w400,
-                                fontSize: 12,
-                                height: 1.4,
-                                color: Color(0xE59A9A9A),
-                              ),
-                            ),
-                            SizedBox(height: 7),
-                            Text(
-                              title,
-                              style: GoogleFonts.almarai(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 16,
-                                height: 1.2,
-                                color: Color(0xFF292929),
-                              ),
-                            ),
-                            SizedBox(height: 6),
-                            Text(
-                              description,
-                              style: GoogleFonts.lato(
-                                fontWeight: FontWeight.w400,
-                                fontSize: 14,
-                                height: 1.2,
-                                color: Color(0xFF1C252C),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(width: 10),
-                Row(
-                  children: [
-                    if (showCheckIcon) // Conditionally show the check icon
-                      IconButton(
-                        icon: Icon(Icons.check, color: Colors.green, size: 24),
-                        onPressed: onCheckTap,
-                      ),
-                    SizedBox(width: 10),
-                    GestureDetector(
-                      onTap: onActionTap,
-                      child: Icon(
-                        Icons.more_vert, // Vertical icon
-                        size: 24,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-
-  void _showActionMenu(BuildContext context, String docId) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Color(0xFF000000),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: Icon(Icons.edit, color: Colors.white),
-                title: Text(
-                  'Edit',
-                  style: GoogleFonts.lato(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => UpdateDataScreen(
-                        studentNumber: widget.studentNumber,
-                        docId: docId,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              Divider(color: Colors.grey[700]),
-              ListTile(
-                leading: Icon(Icons.delete, color: Colors.white),
-                title: Text(
-                  'Delete',
-                  style: GoogleFonts.lato(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  _deleteTask(context, docId);
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  /*
-  void _showEditTaskDialog(BuildContext context, String docId) {
-    FirebaseFirestore.instance
-        .collection('users')
-        .doc(widget.studentNumber) // Use widget here
-        .collection('to-do-files')
-        .doc(docId)
-        .get()
-        .then((doc) {
-      if (!mounted) return;
-
-      var data = doc.data() as Map<String, dynamic>;
-
-      var subjectController = TextEditingController(text: data['subject']);
-      var startTimeController = TextEditingController(
-        text: data['startTime'] is Timestamp
-            ? data['startTime'].toDate().toString()
-            : data['startTime'],
-      );
-      var endTimeController = TextEditingController(
-        text: data['endTime'] is Timestamp
-            ? data['endTime'].toDate().toString()
-            : data['endTime'],
-      );
-      var detailsController = TextEditingController(text: data['details']);
-
-      showModalBottomSheet(
-        context: context,
-        backgroundColor: Colors.black, // Set your desired color
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        builder: (context) {
-          return Padding(
-            padding: EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: subjectController,
-                  decoration: InputDecoration(labelText: 'Subject'),
-                  onChanged: (value) {
-                    data['subject'] = value;
-                  },
-                ),
-                TextField(
-                  controller: startTimeController,
-                  decoration: InputDecoration(labelText: 'Start Time'),
-                  onChanged: (value) {
-                    data['startTime'] = value;
-                  },
-                ),
-                TextField(
-                  controller: endTimeController,
-                  decoration: InputDecoration(labelText: 'End Time'),
-                  onChanged: (value) {
-                    data['endTime'] = value;
-                  },
-                ),
-                TextField(
-                  controller: detailsController,
-                  decoration: InputDecoration(labelText: 'Details'),
-                  onChanged: (value) {
-                    data['details'] = value;
-                  },
-                ),
-                SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
-                      child: Text(
-                        'Cancel',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ),
-                    ElevatedButton(
-                      onPressed: () async {
-                        try {
-                          await FirebaseFirestore.instance
-                              .collection('users')
-                              .doc(widget.studentNumber)
-                              .collection('to-do-files')
-                              .doc(docId)
-                              .update(data);
-
-                          Navigator.pop(context); // Close the bottom sheet
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Task updated successfully'),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
-                        } catch (e) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Failed to update task'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                        }
-                      },
-                      child: Text('Update'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          );
-        },
-      );
-    }).catchError((error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to fetch task data'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    });
-  }
-
-   */
-
-  void _deleteTask(BuildContext context, String docId) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.studentNumber) // Use widget here
-          .collection('to-do-files')
-          .doc(docId)
           .delete();
 
-      Fluttertoast.showToast(
-        msg: 'Task deleted successfully.',
-        toastLength: Toast.LENGTH_SHORT,
-        gravity: ToastGravity.BOTTOM,
-        backgroundColor: Colors.green,
-        textColor: Colors.white,
-        fontSize: 16.0,
-      );
+      if (!_disposed) {
+        Fluttertoast.showToast(
+          msg: 'Task deleted successfully.',
+          toastLength: Toast.LENGTH_SHORT,
+          gravity: ToastGravity.BOTTOM,
+          backgroundColor: Colors.green,
+          textColor: Colors.white,
+          fontSize: 16.0,
+        );
+      }
+      _updateWidgetStudentNumber();
     } catch (e) {
-      Fluttertoast.showToast(
-        msg: 'Failed to delete task.',
-        toastLength: Toast.LENGTH_SHORT,
-        gravity: ToastGravity.BOTTOM,
-        backgroundColor: Colors.red,
-        textColor: Colors.white,
-        fontSize: 16.0,
-      );
+      if (!_disposed) {
+        Fluttertoast.showToast(
+          msg: 'Failed to delete task.',
+          toastLength: Toast.LENGTH_SHORT,
+          gravity: ToastGravity.BOTTOM,
+          backgroundColor: Colors.red,
+          textColor: Colors.white,
+          fontSize: 16.0,
+        );
+      }
     }
-  }
-}
-
-Color _getColorForTaskType(String taskType) {
-  switch (taskType) {
-    case 'To Do':
-      return Color(0xFFC4D7FF); // Updated color for "To Do"
-    case 'Missed':
-      return Colors.red; // Red for "Missed"
-    case 'Completed':
-      return Color(0xFF57E597); // Updated color for "Completed"
-    default:
-      return Colors.grey;
   }
 }
